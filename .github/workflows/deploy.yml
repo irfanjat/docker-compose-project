@@ -1,0 +1,118 @@
+# .github/workflows/deploy.yml
+
+name: CI/CD Pipeline
+
+# Kab trigger ho yeh pipeline?
+on:
+  push:
+    branches:
+      - main        # Sirf main branch par push hone par
+
+jobs:
+
+  # ─────────────────────────────────────────
+  # JOB 1: BUILD & TEST
+  # ─────────────────────────────────────────
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest     # GitHub ka free Linux server
+
+    steps:
+
+      # Step 1: Code checkout karo
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Step 2: Docker build karo
+      - name: Build Docker Image
+        run: docker build -t my-app:latest .
+
+      # Step 3: Basic test (app start hoti hai?)
+      - name: Test Application
+        run: |
+          docker run -d --name test-app -p 3000:3000 my-app:latest
+          sleep 5
+          curl http://localhost:3000 || exit 1
+          docker stop test-app
+          docker rm test-app
+
+  # ─────────────────────────────────────────
+  # JOB 2: PUSH TO ECR
+  # ─────────────────────────────────────────
+  push-to-ecr:
+    name: Push Image to AWS ECR
+    runs-on: ubuntu-latest
+    needs: build          # Pehle build job pass hona chahiye!
+
+    steps:
+
+      # Step 1: Code checkout
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Step 2: AWS credentials configure karo
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Step 3: ECR mein login karo
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      # Step 4: Image build karo aur ECR par push karo
+      - name: Build, Tag and Push Image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}     # Unique tag = commit ID
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  # ─────────────────────────────────────────
+  # JOB 3: DEPLOY TO EC2
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: push-to-ecr     # Pehle ECR push hona chahiye!
+
+    steps:
+
+      # Step 1: EC2 par SSH karke deploy karo
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # AWS ECR se login
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            docker login --username AWS --password-stdin \
+            ${{ secrets.AWS_ACCESS_KEY_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+            # Latest image pull karo
+            docker pull ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
+
+            # Purana container band karo
+            docker stop my-app || true
+            docker rm my-app || true
+
+            # Naya container start karo
+            docker run -d \
+              --name my-app \
+              --restart always \
+              -p 3000:3000 \
+              ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
+
+            echo "✅ Deployment successful!"
+```
+
+
