@@ -1,0 +1,24 @@
+version: '3'
+
+services:
+
+  # Our Node.js App
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongo
+    restart: always
+
+  # MongoDB Database
+  mongo:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+# Persistent storage for MongoDB
+volumes:
+  mongo-data:
