@@ -1,6 +1,6 @@
 # 🐳 Docker Compose — Node.js + MongoDB Project
 
-A beginner-friendly project demonstrating **Docker Compose** with a Node.js app connected to a MongoDB database. Everything runs with a single command!
+A beginner-friendly project demonstrating **Docker Compose** with a Node.js app connected to a MongoDB database. Everything runs with a single command!!
 
 ---
 
